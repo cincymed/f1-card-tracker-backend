@@ -2,9 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import bcryptjs from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -196,7 +196,11 @@ app.post('/api/collection/:userId', verifyToken,async (req, res) => {
 });
 
 // Get price history
+
 app.get('/api/collection/:userId/history', verifyToken, async (req, res) => {
+
+app.get('/api/collection/:userId/history', async (req, res) => {
+
   try {
     const { userId } = req.params;
     const collection = await Collection.findOne({ userId });
