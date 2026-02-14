@@ -157,4 +157,3 @@ app.listen(PORT, () => {
   console.log(`✅ F1 Card Tracker Server running on port ${PORT}`);
   console.log(`🔒 CORS Origin: ${FRONTEND_URL}`);
 });
-```
