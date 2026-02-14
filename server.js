@@ -12,6 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8000';
 const MONGODB_URI = process.env.MONGODB_URI;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
 // MongoDB Connection
 if (!MONGODB_URI) {
@@ -39,7 +40,7 @@ const collectionSchema = new mongoose.Schema({
     date: { type: Date, default: Date.now },
     totalValue: Number,
     cardCount: Number,
-    snapshot: mongoose.Schema.Types.Mixed // Store card details at this point in time
+    snapshot: mongoose.Schema.Types.Mixed
   }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
@@ -88,7 +89,7 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-// JWT Verification Middleware (ADD HERE)
+// JWT Verification Middleware
 function verifyToken(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
 
@@ -97,7 +98,7 @@ function verifyToken(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-this');
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.userId = decoded.userId;
     req.email = decoded.email;
     next();
@@ -105,16 +106,6 @@ function verifyToken(req, res, next) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
-
-// Test endpoint (this is your first route)
-app.get('/api/test', (req, res) => {
-```
-
-So the structure is:
-```
-Initialize Anthropic ✓
-Add verifyToken middleware ← HERE
-Add routes/endpoints
 
 // Test endpoint
 app.get('/api/test', (req, res) => {
@@ -125,19 +116,85 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Signup endpoint (ADD HERE)
+// Signup endpoint
 app.post('/api/auth/signup', async (req, res) => {
-  // ... code ...
+  try {
+    const { email, password, confirmPassword } = req.body;
+
+    if (!email || !password || !confirmPassword) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ error: 'Passwords do not match' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    const hashedPassword = await bcryptjs.hash(password, 10);
+
+    const user = new User({
+      email,
+      password: hashedPassword
+    });
+
+    await user.save();
+
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.json({ success: true, token, userId: user._id });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Signup failed' });
+  }
 });
 
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
-  // ... code ...
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const passwordMatch = await bcryptjs.compare(password, user.password);
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.json({ success: true, token, userId: user._id });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
 });
 
 // Verify token endpoint
 app.post('/api/auth/verify', verifyToken, (req, res) => {
-  // ... code ...
+  res.json({ success: true, email: req.email });
 });
 
 // Get collection
@@ -157,7 +214,7 @@ app.get('/api/collection/:userId', verifyToken, async (req, res) => {
 });
 
 // Save collection
-app.post('/api/collection/:userId', verifyToken,async (req, res) => {
+app.post('/api/collection/:userId', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
     const { cards } = req.body;
@@ -166,11 +223,9 @@ app.post('/api/collection/:userId', verifyToken,async (req, res) => {
       return res.status(400).json({ error: 'Cards data required' });
     }
 
-    // Calculate total collection value
     const totalValue = calculateTotalValue(cards);
     const cardCount = countTotalCards(cards);
 
-    // Create price history entry
     const priceHistoryEntry = {
       date: new Date(),
       totalValue,
@@ -196,11 +251,7 @@ app.post('/api/collection/:userId', verifyToken,async (req, res) => {
 });
 
 // Get price history
-
 app.get('/api/collection/:userId/history', verifyToken, async (req, res) => {
-
-app.get('/api/collection/:userId/history', async (req, res) => {
-
   try {
     const { userId } = req.params;
     const collection = await Collection.findOne({ userId });
@@ -218,14 +269,11 @@ app.get('/api/collection/:userId/history', async (req, res) => {
 // Helper functions
 function calculateTotalValue(cards) {
   let total = 0;
-  // This is a simple calculation - you can make it more sophisticated
-  // For now, we'll estimate based on card count and rarity
   Object.keys(cards).forEach(cardKey => {
     const variants = cards[cardKey];
     Object.keys(variants).forEach(variant => {
       if (variant === '_analyses' || variant.startsWith('_')) return;
       const count = variants[variant] || 0;
-      // Simple estimate: base value varies by variant
       const baseValue = getVariantBaseValue(variant);
       total += count * baseValue;
     });
@@ -246,7 +294,6 @@ function countTotalCards(cards) {
 }
 
 function getVariantBaseValue(variant) {
-  // Rough estimates for variant values
   const values = {
     'Base': 2,
     'Refractor': 5,
