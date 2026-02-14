@@ -24,6 +24,12 @@ if (!MONGODB_URI) {
 const collectionSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   cards: { type: mongoose.Schema.Types.Mixed, default: {} },
+  priceHistory: [{
+    date: { type: Date, default: Date.now },
+    totalValue: Number,
+    cardCount: Number,
+    snapshot: mongoose.Schema.Types.Mixed // Store card details at this point in time
+  }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -106,18 +112,100 @@ app.post('/api/collection/:userId', async (req, res) => {
       return res.status(400).json({ error: 'Cards data required' });
     }
 
+    // Calculate total collection value
+    const totalValue = calculateTotalValue(cards);
+    const cardCount = countTotalCards(cards);
+
+    // Create price history entry
+    const priceHistoryEntry = {
+      date: new Date(),
+      totalValue,
+      cardCount,
+      snapshot: JSON.parse(JSON.stringify(cards))
+    };
+
     const collection = await Collection.findOneAndUpdate(
       { userId },
-      { cards, updatedAt: new Date() },
+      { 
+        cards, 
+        updatedAt: new Date(),
+        $push: { priceHistory: priceHistoryEntry }
+      },
       { upsert: true, new: true }
     );
 
-    res.json({ success: true, synced: true });
+    res.json({ success: true, synced: true, totalValue });
   } catch (error) {
     console.error('Error saving collection:', error);
     res.status(500).json({ error: 'Failed to save collection' });
   }
 });
+
+// Get price history
+app.get('/api/collection/:userId/history', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const collection = await Collection.findOne({ userId });
+    
+    res.json({
+      priceHistory: collection ? collection.priceHistory || [] : [],
+      success: true
+    });
+  } catch (error) {
+    console.error('Error fetching price history:', error);
+    res.status(500).json({ error: 'Failed to fetch price history' });
+  }
+});
+
+// Helper functions
+function calculateTotalValue(cards) {
+  let total = 0;
+  // This is a simple calculation - you can make it more sophisticated
+  // For now, we'll estimate based on card count and rarity
+  Object.keys(cards).forEach(cardKey => {
+    const variants = cards[cardKey];
+    Object.keys(variants).forEach(variant => {
+      if (variant === '_analyses' || variant.startsWith('_')) return;
+      const count = variants[variant] || 0;
+      // Simple estimate: base value varies by variant
+      const baseValue = getVariantBaseValue(variant);
+      total += count * baseValue;
+    });
+  });
+  return Math.round(total);
+}
+
+function countTotalCards(cards) {
+  let count = 0;
+  Object.keys(cards).forEach(cardKey => {
+    const variants = cards[cardKey];
+    Object.keys(variants).forEach(variant => {
+      if (variant === '_analyses' || variant.startsWith('_')) return;
+      count += variants[variant] || 0;
+    });
+  });
+  return count;
+}
+
+function getVariantBaseValue(variant) {
+  // Rough estimates for variant values
+  const values = {
+    'Base': 2,
+    'Refractor': 5,
+    'Purple Refractor /299': 15,
+    'Blue Refractor /150': 20,
+    'Green Refractor /99': 30,
+    'Gold Refractor /50': 50,
+    'Orange Refractor /25': 75,
+    'Red Refractor /5': 150,
+    'SuperFractor 1/1': 500,
+    'Printing Plate 1/1': 400,
+    'Black Refractor /10': 100,
+    'Magenta/Pink Refractor /250': 12,
+    'Gold Wave /75': 40
+  };
+  return values[variant] || 5;
+}
 
 // AI recognition endpoint
 app.post('/api/recognize', async (req, res) => {
