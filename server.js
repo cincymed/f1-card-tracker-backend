@@ -315,7 +315,7 @@ function getVariantBaseValue(variant) {
 // AI recognition endpoint
 app.post('/api/recognize', verifyToken, async (req, res) => {
   try {
-    const { messages, model, max_tokens } = req.body;
+    const { messages, model, max_tokens, tools } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid request format' });
@@ -326,11 +326,18 @@ app.post('/api/recognize', verifyToken, async (req, res) => {
       return res.status(413).json({ error: 'Request too large' });
     }
 
-    const response = await client.messages.create({
-      model: model || 'claude-sonnet-4-20250514',
-      max_tokens: max_tokens || 2000,
-      messages: messages
-    });
+ const params = {
+  model: model || 'claude-sonnet-4-20250514',
+  max_tokens: max_tokens || 2000,
+  messages: messages
+};
+
+if (tools && Array.isArray(tools)) {
+  params.tools = tools;
+}
+
+const response = await client.messages.create(params);
+
 
     res.json(response);
   } catch (error) {
