@@ -18,8 +18,22 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 if (!MONGODB_URI) {
   console.error('❌ MONGODB_URI not set');
 } else {
-  mongoose.connect(MONGODB_URI)
-    .then(() => console.log('✅ MongoDB connected'))
+ mongoose.connect(MONGODB_URI)
+    .then(async () => {
+      console.log('✅ MongoDB connected');
+      try {
+        const db = mongoose.connection.db;
+        const result = await db.collection('collections').updateMany(
+          { 'priceHistory.snapshot': { $exists: true } },
+          { $set: { priceHistory: [] } }
+        );
+        if (result.modifiedCount > 0) {
+          console.log('Migration: cleared bloated priceHistory from ' + result.modifiedCount + ' collection(s)');
+        }
+      } catch (err) {
+        console.error('Migration warning (non-fatal):', err.message);
+      }
+    })
     .catch(err => console.error('❌ MongoDB connection error:', err));
 }
 
@@ -229,19 +243,24 @@ app.post('/api/collection/:userId', verifyToken, async (req, res) => {
     const priceHistoryEntry = {
       date: new Date(),
       totalValue,
-      cardCount,
-      snapshot: JSON.parse(JSON.stringify(cards))
+      cardCount
     };
 
     const collection = await Collection.findOneAndUpdate(
       { userId },
-      { 
-        cards, 
+      {
+        cards,
         updatedAt: new Date(),
-        $push: { priceHistory: priceHistoryEntry }
+        $push: {
+          priceHistory: {
+            $each: [priceHistoryEntry],
+            $slice: -500
+          }
+        }
       },
       { upsert: true, new: true }
     );
+
 
     res.json({ success: true, synced: true, totalValue });
   } catch (error) {
