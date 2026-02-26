@@ -258,7 +258,7 @@ app.post('/api/collection/:userId', verifyToken, async (req, res) => {
           }
         }
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
 
